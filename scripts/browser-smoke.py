@@ -1,0 +1,25 @@
+"""Run against a disposable, empty AIList instance."""
+import os
+
+from playwright.sync_api import expect, sync_playwright
+
+with sync_playwright() as runtime:
+    browser = runtime.chromium.launch(executable_path=os.getenv("CHROMIUM") or None)
+    page = browser.new_page(locale="en-US")
+    page.goto(os.getenv("APP_URL", "http://127.0.0.1:8080"))
+    page.get_by_label("Access token").fill(os.environ["APP_TOKEN"])
+    page.get_by_role("button", name="Sign in").click()
+    page.get_by_role("button", name="Manual entry").click()
+    page.get_by_label("Name", exact=True).fill("smoke rice")
+    page.get_by_label("Quantity", exact=True).fill("2")
+    page.get_by_label("Unit", exact=True).fill("kg")
+    page.get_by_role("button", name="Review", exact=True).click()
+    page.get_by_role("button", name="Confirm").click()
+    expect(page.get_by_role("button", name="smoke rice Food 2 kg")).to_be_visible()
+    page.reload()
+    expect(page.get_by_role("button", name="smoke rice Food 2 kg")).to_be_visible()
+    page.get_by_role("button", name="History").click()
+    expect(page.locator("article").filter(has_text="smoke rice")).to_be_visible()
+    page.get_by_role("button", name="RU", exact=True).click()
+    expect(page.get_by_role("heading", name="Домашние запасы")).to_be_visible()
+    browser.close()

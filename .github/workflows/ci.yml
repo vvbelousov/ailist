@@ -1,0 +1,53 @@
+name: Verify and release
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: ci
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://postgres:ci@127.0.0.1:5432/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - run: go vet ./... && go test -race -v ./...
+      - run: sh scripts/init-env.sh
+      - run: docker compose --profile voice config --quiet
+      - run: docker compose up --build -d --wait
+      - run: docker compose --profile voice build whisper
+      - run: |
+          set -a
+          . ./.env
+          set +a
+          python -m pip install playwright
+          python -m playwright install chromium --with-deps
+          python scripts/browser-smoke.py
+          docker compose restart app
+          for n in $(seq 1 30); do curl -fsS http://localhost:8080/health && break; sleep 1; done
+          curl -fsS -H "Authorization: Bearer $APP_TOKEN" http://localhost:8080/api/items | python -c 'import json,sys; assert any(x["name"]=="smoke rice" and x["quantity"]==2 for x in json.load(sys.stdin))'
+      - if: always()
+        run: docker compose down -v
+  release:
+    needs: verify
+    if: github.event_name == 'push' && github.event.head_commit.message == 'release v0.1.0'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create v0.1.0 --target "$GITHUB_SHA" --title "AIList v0.1.0" --notes-file docs/release-0.1.0.md
