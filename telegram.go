@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,6 +24,17 @@ type bot struct {
 	en    bool
 }
 type update struct {
+	Callback *struct {
+		ID      string
+		Data    string
+		From    struct{ ID int64 }
+		Message struct {
+			Chat struct {
+				ID   int64
+				Type string
+			}
+		}
+	} `json:"callback_query"`
 	ID      int64 `json:"update_id"`
 	Message struct {
 		Chat struct {
@@ -30,6 +42,10 @@ type update struct {
 			Type string
 		}
 		From  struct{ ID int64 }
+		Reply *struct {
+			Text string
+			From struct{ ID int64 }
+		} `json:"reply_to_message"`
 		Text  string
 		Voice struct {
 			FileID string `json:"file_id"`
@@ -89,23 +105,11 @@ func (a app) poll() {
 		e := a.db.QueryRow("SELECT COALESCE((SELECT next_id FROM bot_cursor),0)").Scan(&offset)
 		var updates []update
 		if e == nil {
-			e = b.rpc(ctx, "getUpdates", map[string]any{"offset": offset, "timeout": 25, "allowed_updates": []string{"message"}}, &updates)
+			e = b.rpc(ctx, "getUpdates", map[string]any{"offset": offset, "timeout": 25, "allowed_updates": []string{"message", "callback_query"}}, &updates)
 		}
 		for _, u := range updates {
-			m := u.Message
-			if b.users[m.From.ID] && m.Chat.Type == "private" && m.Chat.ID == m.From.ID {
-				msg, err := b.handle(ctx, u)
-				if err != nil {
-					msg = b.tr("Ошибка. Проверьте остаток или доступность сервиса и повторите запрос.", "Error. Check stock or service availability and retry.")
-				}
-				rr := []rune(msg)
-				if len(rr) > 3900 {
-					msg = string(rr[:3850]) + b.tr("\n… Полный список в веб-интерфейсе.", "\n… Open the web app for the full list.")
-				}
-				e = b.rpc(ctx, "sendMessage", map[string]any{"chat_id": m.Chat.ID, "text": msg}, nil)
-				if e != nil {
-					break
-				}
+			if e = b.deliver(ctx, u); e != nil {
+				break
 			}
 			_, e = a.db.Exec("INSERT INTO bot_cursor(next_id) VALUES($1) ON CONFLICT(singleton) DO UPDATE SET next_id=excluded.next_id", u.ID+1)
 			if e != nil {
@@ -149,21 +153,30 @@ func (b bot) handle(ctx context.Context, u update) (string, error) {
 			return "", e
 		}
 	}
+	if m.Reply != nil && strconv.FormatInt(m.Reply.From.ID, 10) == strings.SplitN(b.token, ":", 2)[0] {
+		lines := strings.Split(m.Reply.Text, "\n")
+		if fields := strings.Fields(lines[len(lines)-1]); len(fields) == 3 && fields[0] == "/edit" {
+			return b.correct(ctx, chat, u.ID, fields[1], fields[2], t)
+		}
+	}
 	if strings.HasPrefix(t, "/confirm ") {
 		id := strings.TrimSpace(strings.TrimPrefix(t, "/confirm "))
-		var raw []byte
-		e := b.db.QueryRowContext(ctx, "SELECT ops FROM drafts WHERE chat=$1 AND id=$2", chat, id).Scan(&raw)
+		tx, e := b.db.BeginTx(ctx, nil)
 		if e != nil {
 			return "", e
 		}
-		batch := Batch{ID: id}
-		if json.Unmarshal(raw, &batch.Ops) != nil {
-			return "", errors.New("draft")
+		defer tx.Rollback()
+		batch, e := readDraft(ctx, tx, chat, id)
+		if errors.Is(e, sql.ErrNoRows) {
+			return b.stale(), nil
 		}
-		if e = apply(ctx, b.db, batch); e != nil {
+		if e != nil {
 			return "", e
 		}
-		return b.tr("Сохранено.", "Saved."), nil
+		if e = applyTx(ctx, tx, batch); e != nil {
+			return "", e
+		}
+		return b.tr("Сохранено.", "Saved."), tx.Commit()
 	}
 	var p Plan
 	switch t {
@@ -190,11 +203,7 @@ func (b bot) handle(ctx context.Context, u update) (string, error) {
 	}
 	if p.Mode == "write" {
 		id := fmt.Sprintf("tg-%d-%d", chat, u.ID)
-		var s strings.Builder
-		for _, o := range p.Ops {
-			fmt.Fprintln(&s, b.describe(o))
-		}
-		msg := s.String() + "\n/confirm " + id + "\n/cancel"
+		msg := b.preview(id, p.Ops)
 		if len([]rune(msg)) > 3800 {
 			return b.tr("Разбейте команду на несколько сообщений.", "Split this command into shorter messages."), nil
 		}

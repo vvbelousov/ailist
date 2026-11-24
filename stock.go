@@ -83,6 +83,18 @@ CREATE TABLE IF NOT EXISTS bot_cursor(singleton boolean PRIMARY KEY DEFAULT TRUE
 `
 
 func apply(ctx context.Context, db *sql.DB, b Batch) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := applyTx(ctx, tx, b); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func applyTx(ctx context.Context, tx *sql.Tx, b Batch) error {
 	if len(b.ID) < 8 || len(b.ID) > 128 {
 		return invalid
 	}
@@ -94,11 +106,6 @@ func apply(ctx context.Context, db *sql.DB, b Batch) error {
 		return invalid
 	}
 	hash := sha256.Sum256(data)
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
 	// Serialize household writes, including requests touching the same lots in opposite orders.
 	if _, err = tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(810151)"); err != nil {
 		return err
@@ -140,7 +147,7 @@ func apply(ctx context.Context, db *sql.DB, b Batch) error {
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 func items(ctx context.Context, db *sql.DB, mode, q string) ([]Item, error) {
 	if mode == "" {

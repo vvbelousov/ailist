@@ -50,6 +50,7 @@
     command = $state(""),
     rows = $state<Item[]>([]),
     history = $state<{ at: string; ops: Op[] }[]>([]);
+  let editing = $state<number | null>(null);
   let manual = $state(false),
     form = $state<Op>(blank()),
     draft = $state<Op[]>([]),
@@ -110,6 +111,7 @@
     sessionStorage.setItem("token", token);
   }
   function logout() {
+    editing = null;
     connected = false;
     sessionStorage.removeItem("token");
     token = "";
@@ -126,6 +128,7 @@
     if (token) run(login);
   });
   function preview(ops: Op[]) {
+    editing = null;
     draft = ops;
     draftId = Array.from(crypto.getRandomValues(new Uint8Array(16)), (n) =>
       n.toString(16).padStart(2, "0"),
@@ -151,6 +154,7 @@
     await refresh("list");
   }
   function edit(i: Item) {
+    editing = null;
     form = { ...i, action: "set" };
     manual = true;
     draft = [];
@@ -169,6 +173,79 @@
       .join(" · ");
   }
 </script>
+
+      {#snippet opForm()}
+<form
+          class="panel grid"
+          onsubmit={(e) => {
+            e.preventDefault();
+            if (editing === null) preview([{ ...form }]);
+            else {
+              draft[editing] = { ...form, destination: form.action === "move" ? form.destination : "" };
+              editing = null;
+            }
+          }}
+        >
+          <label
+            >{tr("Действие", "Action")}<select bind:value={form.action}
+              >{#each ["set", "add", "consume", "move"] as a}<option value={a}
+                  >{label(a)}</option
+                >{/each}</select
+            ></label
+          >
+          <label
+            >{tr("Название", "Name")}<input
+              bind:value={form.name}
+              required
+            /></label
+          >
+          <label
+            >{tr("Количество", "Quantity")}<input
+              type="number"
+              min="0"
+              max="1000000000"
+              step="any"
+              bind:value={form.quantity}
+              required
+            /></label
+          >
+          <label
+            >{tr("Единица", "Unit")}<input
+              bind:value={form.unit}
+              required
+              list="units"
+            /><datalist id="units"
+              >{#each ["pcs", "kg", "g", "l", "ml"] as unit}<option value={unit}
+                ></option>{/each}</datalist
+            ></label
+          >
+          <label
+            >{tr("Категория", "Category")}<select bind:value={form.category}
+              >{#each ["food", "medicine", "supplies", "other"] as a}<option
+                  value={a}>{label(a)}</option
+                >{/each}</select
+            ></label
+          >
+          <label
+            >{tr("Место", "Location")}<input
+              bind:value={form.location}
+            /></label
+          >
+          {#if form.action === "move"}<label
+              >{tr("Куда", "Destination")}<input
+                bind:value={form.destination}
+                required
+              /></label
+            >{/if}
+          <label
+            >{tr("Годен до", "Expiry")}<input
+              type="date"
+              bind:value={form.expiry}
+            /></label
+          ><button class="primary">{editing === null ? tr("Проверить", "Review") : tr("Сохранить строку", "Save row")}</button>
+          {#if editing !== null}<button type="button" onclick={() => editing = null}>{tr("Отменить правку", "Discard edit")}</button>{/if}
+        </form>
+{/snippet}
 
 <header>
   <strong><img src="/icon.svg" alt="" /> AIList</strong>
@@ -245,12 +322,17 @@
       {#if draft.length}<section class="panel">
           <h2>{tr("Проверить изменения", "Review changes")}</h2>
           <ul>
-            {#each draft as o}<li>{describe(o)}</li>{/each}
+            {#each draft as o, i}
+              <li>{describe(o)}
+                <button onclick={() => { manual = false; editing = i; form = { ...o }; }}>{tr("Исправить", "Edit row")} {i+1}</button>
+                {#if editing === i}{@render opForm()}{/if}
+              </li>
+            {/each}
           </ul>
-          <button class="primary" onclick={() => run(save)}
+          <button class="primary" disabled={editing !== null} onclick={() => run(save)}
             >{tr("Подтвердить", "Confirm")}</button
           >
-          <button onclick={() => (draft = [])}>{tr("Отмена", "Cancel")}</button>
+          <button onclick={() => { draft = []; editing = null; }}>{tr("Отмена", "Cancel")}</button>
         </section>{/if}
       <nav>
         {#each ["list", "shopping", "expire", "history"] as k}<button
@@ -266,76 +348,13 @@
         <h2>{label(tab)}</h2>
         <button
           onclick={() => {
+            editing = null;
             form = blank();
             manual = !manual;
           }}>{tr("Внести вручную", "Manual entry")}</button
         >
       </div>
-      {#if manual}<form
-          class="panel grid"
-          onsubmit={(e) => {
-            e.preventDefault();
-            preview([{ ...form }]);
-          }}
-        >
-          <label
-            >{tr("Действие", "Action")}<select bind:value={form.action}
-              >{#each ["set", "add", "consume", "move"] as a}<option value={a}
-                  >{label(a)}</option
-                >{/each}</select
-            ></label
-          >
-          <label
-            >{tr("Название", "Name")}<input
-              bind:value={form.name}
-              required
-            /></label
-          >
-          <label
-            >{tr("Количество", "Quantity")}<input
-              type="number"
-              min="0"
-              max="1000000000"
-              step="any"
-              bind:value={form.quantity}
-              required
-            /></label
-          >
-          <label
-            >{tr("Единица", "Unit")}<input
-              bind:value={form.unit}
-              required
-              list="units"
-            /><datalist id="units"
-              >{#each ["pcs", "kg", "g", "l", "ml"] as unit}<option value={unit}
-                ></option>{/each}</datalist
-            ></label
-          >
-          <label
-            >{tr("Категория", "Category")}<select bind:value={form.category}
-              >{#each ["food", "medicine", "supplies", "other"] as a}<option
-                  value={a}>{label(a)}</option
-                >{/each}</select
-            ></label
-          >
-          <label
-            >{tr("Место", "Location")}<input
-              bind:value={form.location}
-            /></label
-          >
-          {#if form.action === "move"}<label
-              >{tr("Куда", "Destination")}<input
-                bind:value={form.destination}
-                required
-              /></label
-            >{/if}
-          <label
-            >{tr("Годен до", "Expiry")}<input
-              type="date"
-              bind:value={form.expiry}
-            /></label
-          ><button class="primary">{tr("Проверить", "Review")}</button>
-        </form>{/if}
+      {#if manual}{@render opForm()}{/if}
       {#if tab === "history"}{#each history as h}<article>
             <small>{new Date(h.at).toLocaleString(lang)}</small
             >{#each h.ops as o}<div>{describe(o)}</div>{/each}

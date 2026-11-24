@@ -22,4 +22,25 @@ with sync_playwright() as runtime:
     expect(page.locator("article").filter(has_text="smoke rice")).to_be_visible()
     page.get_by_role("button", name="RU", exact=True).click()
     expect(page.get_by_role("heading", name="Домашние запасы")).to_be_visible()
+    page.get_by_role("button", name="EN", exact=True).click()
+    ops = [dict(action="add", name=name, quantity=1, unit="pcs",
+                location="pantry", category="food", expiry="")
+           for name in ("flour", "sausage", "tomato", "soap", "potato")]
+    page.route("**/api/interpret", lambda route: route.fulfill(json={"mode": "write", "ops": ops}))
+    page.get_by_label("Inventory assistant").fill("five items")
+    page.get_by_role("button", name="Interpret").click()
+    page.get_by_role("button", name="Edit row 3").click()
+    expect(page.get_by_role("button", name="Confirm")).to_be_disabled()
+    page.get_by_label("Name", exact=True).fill("discard me")
+    page.get_by_role("button", name="Discard edit").click()
+    page.get_by_role("button", name="Edit row 3").click()
+    expect(page.get_by_label("Name", exact=True)).to_have_value("tomato")
+    page.get_by_label("Name", exact=True).fill("tomatoes")
+    page.get_by_label("Quantity", exact=True).fill("2")
+    page.get_by_role("button", name="Save row").click()
+    expect(page.get_by_role("listitem")).to_have_count(5)
+    page.get_by_role("button", name="Confirm").click()
+    for name in ("flour", "sausage", "tomatoes", "soap", "potato"):
+        quantity = 2 if name == "tomatoes" else 1
+        expect(page.get_by_role("button", name=f"{name} Food · pantry {quantity} pcs")).to_be_visible()
     browser.close()
