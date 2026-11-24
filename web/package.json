@@ -1,0 +1,8 @@
+{
+  "name": "ailist-web",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "vite build", "check": "svelte-check --tsconfig ./tsconfig.json" },
+  "dependencies": { "svelte": "^5.35.0" },
+  "devDependencies": { "vite": "^6.3.5", "@sveltejs/vite-plugin-svelte": "^5.1.0", "typescript": "^5.8.3", "svelte-check": "^4.2.2" }
+}
