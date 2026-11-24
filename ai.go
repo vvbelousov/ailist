@@ -76,7 +76,15 @@ func (a app) interpret(ctx context.Context, t string) (Plan, error) {
 		stock = stock[:150]
 	}
 	inventory, _ := json.Marshal(stock)
-	msg := []map[string]string{{"role": "system", "content": fmt.Sprintf(prompt, time.Now().Format("2006-01-02"), inventory)}, {"role": "user", "content": t}}
+	// Few-shot messages help small local models distinguish a report from a question.
+	msg := []map[string]string{
+		{"role": "system", "content": fmt.Sprintf(prompt, time.Now().Format("2006-01-02"), inventory)},
+		{"role": "user", "content": "Картошки осталось 4 кг, мыло закончилось."},
+		{"role": "assistant", "content": `{"mode":"write","ops":[{"action":"set","name":"картофель","unit":"kg","quantity":4,"category":"food","location":"","expiry":""},{"action":"set","name":"мыло","unit":"pcs","quantity":0,"category":"supplies","location":"","expiry":""}]}`},
+		{"role": "user", "content": "Сколько картофеля осталось?"},
+		{"role": "assistant", "content": `{"mode":"list","query":"картофель"}`},
+		{"role": "user", "content": t},
+	}
 	b, _ := json.Marshal(map[string]any{"model": env("LLM_MODEL", "local"), "messages": msg, "temperature": 0, "max_tokens": 2500})
 	var res struct {
 		Choices []struct{ Message struct{ Content string } }

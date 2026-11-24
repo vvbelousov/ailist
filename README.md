@@ -27,6 +27,8 @@ llama-server -m /models/instruct.gguf --alias household --host 0.0.0.0 --port 80
 
 В .env задайте LLM_BASE_URL=http://host.docker.internal:8081/v1 и LLM_MODEL=household; у внешней машины подставьте её LAN-адрес. Закройте доступ к порту модели извне. При включённой авторизации модели задайте LLM_API_KEY. Endpoint должен поддерживать POST /v1/chat/completions и возвращать JSON в message.content. Backend передаёт текст команды и до 150 партий для сопоставления имён. После изменения .env выполните `docker compose up -d`.
 
+На CPU проверен llama.cpp с Qwen2.5-1.5B-Instruct Q4_K_M. Фраза «Риса осталось 2 кг, а стиральный порошок закончился» дала две операции, после подтверждения порошок появился в покупках. Это проверка конкретного сценария; качество распознавания сложных команд зависит от модели.
+
 **English.** Point LLM_BASE_URL at your local OpenAI-compatible endpoint, including /v1, and set LLM_MODEL to its model ID. Use an instruction-tuned multilingual model. No model provider account is required. Queries read the database. Writes require review. Clarifications are single-turn: submit the full revised request.
 
 ## Голос / Voice

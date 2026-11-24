@@ -44,6 +44,18 @@ func (b bot) tr(ru, en string) string {
 	}
 	return ru
 }
+func (b bot) describe(o Op) string {
+	actions := map[string]string{"set": b.tr("Осталось", "Set quantity"), "add": b.tr("Добавить", "Add"), "consume": b.tr("Израсходовать", "Consume"), "move": b.tr("Переместить", "Move")}
+	categories := map[string]string{"food": b.tr("Продукты", "Food"), "medicine": b.tr("Аптечка", "Medicine"), "supplies": b.tr("Расходники", "Supplies"), "other": b.tr("Прочее", "Other")}
+	parts := []string{actions[o.Action], o.Name, fmt.Sprintf("%g %s", *o.Quantity, o.Unit)}
+	for _, field := range []string{o.Location, o.Destination, o.Expiry, categories[o.Category]} {
+		if field != "" {
+			parts = append(parts, field)
+		}
+	}
+	return strings.Join(parts, " · ")
+}
+
 func (b bot) rpc(ctx context.Context, method string, args any, out any) error {
 	data, _ := json.Marshal(args)
 	var wrap struct {
@@ -178,16 +190,16 @@ func (b bot) handle(ctx context.Context, u update) (string, error) {
 	}
 	if p.Mode == "write" {
 		id := fmt.Sprintf("tg-%d-%d", chat, u.ID)
-		raw, _ := json.Marshal(p.Ops)
-		_, e := b.db.ExecContext(ctx, "INSERT INTO drafts VALUES($1,$2,$3) ON CONFLICT(chat) DO UPDATE SET id=excluded.id,ops=excluded.ops", chat, id, string(raw))
 		var s strings.Builder
 		for _, o := range p.Ops {
-			fmt.Fprintf(&s, "%s %s · %g %s · %s %s %s %s\n", o.Action, o.Name, *o.Quantity, o.Unit, o.Location, o.Destination, o.Expiry, o.Category)
+			fmt.Fprintln(&s, b.describe(o))
 		}
 		msg := s.String() + "\n/confirm " + id + "\n/cancel"
 		if len([]rune(msg)) > 3800 {
 			return b.tr("Разбейте команду на несколько сообщений.", "Split this command into shorter messages."), nil
 		}
+		raw, _ := json.Marshal(p.Ops)
+		_, e := b.db.ExecContext(ctx, "INSERT INTO drafts VALUES($1,$2,$3) ON CONFLICT(chat) DO UPDATE SET id=excluded.id,ops=excluded.ops", chat, id, string(raw))
 		return msg, e
 	}
 	rows, e := items(ctx, b.db, p.Mode, p.Query)
