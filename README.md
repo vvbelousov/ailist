@@ -76,3 +76,22 @@ go test -race ./...
 ```
 
 Set TEST_DATABASE_URL to a **disposable database** to run PostgreSQL integration tests (they truncate application tables). Tests cover replay, rollback, concurrent deductions, transfer, expiry, shopping and model/Telegram contracts. CI also builds containers, signs in through Chromium, enters stock, checks history, switches language and verifies persistence after app restart. The release job runs only after verification.
+
+## Исправить позицию / Edit one draft row (v0.2.0)
+
+В веб-интерфейсе нажмите **Исправить** у нужной позиции. Можно изменить любое поле операции. **Сохранить строку** вернёт к просмотру всего черновика, **Отменить правку** восстановит строку. Кнопка **Подтвердить** запишет весь пакет.
+
+В Telegram нажмите **✎ 3**, если ошибочна третья позиция. Ответьте именно на запрос бота, например `помидоры | 2 | pcs`. Можно использовать десятичную запятую. Действие, категория, место, срок и остальные строки сохраняются. Подтвердите обновлённый черновик кнопкой внизу. Кнопки подтверждения из более ранних версий черновика устаревают.
+
+**English.** Select **Edit row** in the web preview, update the fields, then **Save row** or **Discard edit**. In Telegram tap the numbered pencil and reply directly to the bot prompt with `name | quantity | unit`. Review the revised batch and tap **Confirm**. Edits are local and require no further model calls. Existing v0.1 Telegram drafts can still be confirmed by command.
+
+### Обновление с v0.1.0
+
+```sh
+docker compose exec -T db pg_dump -U ailist -Fc ailist > ailist-before-v0.2.0.dump
+git fetch --tags
+git checkout v0.2.0
+docker compose up -d --build --wait
+```
+
+Если используется локальный Whisper, добавьте `--profile voice` после `docker compose`. Сохраняйте те же каталог проекта, тома и .env. Для этой версии миграция таблиц не требуется.
